@@ -1,81 +1,81 @@
-import os
-import json
-import pandas as pd
-import matplotlib.pyplot as plt
-import numpy as np  # Added to help compute volatility
+import requests
+import csv
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from statistics import mean
+
+# Dictionary of company names
+company_names = {"AAPL": "Apple",
+    "MSFT": "Microsoft",
+    "AMZN": "Amazon",
+    "GOOGL": "Alphabet",
+    "FB": "Meta",
+    "JPM": "JPMorgan Chase",
+    "TSLA": "Tesla",
+    "V": "Visa",
+    "JNJ": "Johnson & Johnson",
+    "PG": "Procter & Gamble",
+    "NVDA": "NVIDIA",
+    "BRK.B": "Berkshire Hathaway",
+    "HD": "Home Depot",
+    "MA": "Mastercard",
+    "UNH": "UnitedHealth",
+    "VZ": "Verizon",
+    "PYPL": "PayPal",
+    "DIS": "Disney",
+    "CRM": "Salesforce",
+    "INTC": "Intel",
+    "XOM": "Exxon Mobil",
+    "CMCSA": "Comcast",
+    "T": "AT&T",
+    "WMT": "Walmart",
+    "KO": "Coca-Cola",
+    "PFE": "Pfizer",
+    "MRK": "Merck",
+    "CSCO": "Cisco",
+    "AAP": "Advance Auto Parts",
+    "COST": "Costco",
+    "NFLX": "Netflix",
+    "CVX": "Chevron",
+    "ABT": "Abbott",
+    "MCD": "McDonald's",
+    "IBM": "IBM",
+    "GS": "Goldman Sachs",
+    "SBUX": "Starbucks",
+}
+
+# Initialize the VADER sentiment analyzer outside the function
+analyzer = SentimentIntensityAnalyzer()
 
 
-def compute_average_roi(data):
-    """Compute the average ROI."""
-    valid_rois = [entry["Daily_ROI"] for entry in data if entry["Daily_ROI"] is not None]
-
-    if not valid_rois:
-        return 0  # Return 0 average ROI if no valid ROI entries are found
-
-    total_roi = sum(valid_rois)
-    average_roi = total_roi / len(valid_rois)
-
-    return average_roi
+def sentiment_analyzer(text):
+    """Return the compound sentiment score of a text."""
+    sentiment = analyzer.polarity_scores(text)
+    return sentiment["compound"]
 
 
-def compute_volatility(data):
-    """Compute the volatility."""
-    valid_rois = [entry["Daily_ROI"] for entry in data if entry["Daily_ROI"] is not None]
+def get_average_sentiment(company_name):
+    url = f"https://newsapi.org/v2/everything?q={company_name}&from=2023-09-15&to=2023-09-15&sortBy=popularity&apiKey=1088c0a9c4294358999d3603d72fda8d"
+    response = requests.get(url)
 
-    if len(valid_rois) <= 1:
-        return 0  # Return 0 volatility if not enough ROI entries are found
+    # Ensure the response is successful
+    response.raise_for_status()
 
-    return np.std(valid_rois)
+    articles = response.json().get("articles", [])
 
+    # Get the sentiment of the descriptions (up to the first 5)
+    sentiments = [sentiment_analyzer(article["description"]) for article in articles[:5]]
 
-def visualize_data(sorted_tickers, metric):
-    """Visualize tickers based on the specified metric (either Average ROI or Volatility)."""
-    tickers, values = zip(*sorted_tickers)
-
-    plt.figure(figsize=(10, 6))
-    plt.barh(tickers, values, color='skyblue')
-    plt.xlabel(metric)
-    plt.ylabel('Tickers')
-    plt.title(f'{metric} per Ticker')
-    plt.gca().invert_yaxis()  # To display the top metric value at the top
-    plt.tight_layout()
-    plt.show()
+    # Calculate the average sentiment
+    return round(mean(sentiments), 2) if sentiments else None
 
 
-def main(directory_path, output_csv_path):
-    """Compute metrics for all tickers in the directory, save to CSV and visualize them."""
-    ticker_data = {}
+stock_sentiments = []
+for stock, name in company_names.items():
+    avg_sentiment = get_average_sentiment(name)
+    stock_sentiments.append((stock, avg_sentiment))
 
-    # Iterate through each file in the directory
-    for file in os.listdir(directory_path):
-        if file.endswith(".json"):
-            ticker = file.rstrip(".json")
-            file_path = os.path.join(directory_path, file)
-
-            with open(file_path, 'r') as f:
-                data = json.load(f)
-
-            roi = compute_average_roi(data)
-            volatility = compute_volatility(data)
-
-            ticker_data[ticker] = {"Average_ROI": roi, "Volatility": volatility}
-
-    # Convert to DataFrame and save to CSV
-    df = pd.DataFrame.from_dict(ticker_data, orient="index")
-    df.reset_index(inplace=True)
-    df.rename(columns={"index": "Ticker"}, inplace=True)
-    df.to_csv(output_csv_path, index=False)
-
-    # Visualize data
-    sorted_by_roi = sorted(ticker_data.items(), key=lambda x: x[1]['Average_ROI'], reverse=True)
-    visualize_data([(item[0], item[1]['Average_ROI']) for item in sorted_by_roi], 'Average ROI')
-
-    sorted_by_volatility = sorted(ticker_data.items(), key=lambda x: x[1]['Volatility'], reverse=True)
-    visualize_data([(item[0], item[1]['Volatility']) for item in sorted_by_volatility], 'Volatility')
-
-
-if __name__ == "__main__":
-    DIRECTORY_PATH = "/Users/jake/Downloads/Ticker JSON files/"  # Replace with the path to your directory containing the JSON files.
-    OUTPUT_CSV_PATH = "/Users/jake/Downloads/Ticker_Metrics.csv"  # Replace with where you'd like the CSV to be saved.
-
-    main(DIRECTORY_PATH, OUTPUT_CSV_PATH)
+# Writing the results to CSV
+with open("Stock_sentiment_news_articles.csv", "w", newline="") as f:
+    writer = csv.writer(f)
+    writer.writerow(["Stock Names", "Sentiments"])
+    writer.writerows(stock_sentiments)
