@@ -1,81 +1,41 @@
-import requests
-import csv
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from statistics import mean
+import pandas as pd
+import os
 
-# Dictionary of company names
-company_names = {"AAPL": "Apple",
-    "MSFT": "Microsoft",
-    "AMZN": "Amazon",
-    "GOOGL": "Alphabet",
-    "FB": "Meta",
-    "JPM": "JPMorgan Chase",
-    "TSLA": "Tesla",
-    "V": "Visa",
-    "JNJ": "Johnson & Johnson",
-    "PG": "Procter & Gamble",
-    "NVDA": "NVIDIA",
-    "BRK.B": "Berkshire Hathaway",
-    "HD": "Home Depot",
-    "MA": "Mastercard",
-    "UNH": "UnitedHealth",
-    "VZ": "Verizon",
-    "PYPL": "PayPal",
-    "DIS": "Disney",
-    "CRM": "Salesforce",
-    "INTC": "Intel",
-    "XOM": "Exxon Mobil",
-    "CMCSA": "Comcast",
-    "T": "AT&T",
-    "WMT": "Walmart",
-    "KO": "Coca-Cola",
-    "PFE": "Pfizer",
-    "MRK": "Merck",
-    "CSCO": "Cisco",
-    "AAP": "Advance Auto Parts",
-    "COST": "Costco",
-    "NFLX": "Netflix",
-    "CVX": "Chevron",
-    "ABT": "Abbott",
-    "MCD": "McDonald's",
-    "IBM": "IBM",
-    "GS": "Goldman Sachs",
-    "SBUX": "Starbucks",
-}
+directory = '/Users/jake/Downloads/AdjustedSustainabilityCSVs'  # Please replace this with the path to your directory containing the CSV files
 
-# Initialize the VADER sentiment analyzer outside the function
-analyzer = SentimentIntensityAnalyzer()
+# Step 1: Reading CSV Files
+roi_df = pd.read_csv(os.path.join(directory, 'average_roiRev.csv'))          # Assuming columns: 'Ticker', 'average_roi'
+esg_df = pd.read_csv(os.path.join(directory, 'average_esgRev.csv'))          # Assuming columns: 'Ticker', 'esg_score'
+volatility_df = pd.read_csv(os.path.join(directory, 'average_volatilityRev.csv'))  # Assuming columns: 'Ticker', 'average_volatility'
+sentiment_df = pd.read_csv(os.path.join(directory, 'average_sentimentRev.csv'))   # Assuming columns: 'Ticker', 'sentiment_score'
 
+# Merge dataframes on 'Ticker'
+merged_df = roi_df.merge(esg_df, on='Ticker').merge(volatility_df, on='Ticker').merge(sentiment_df, on='Ticker')
 
-def sentiment_analyzer(text):
-    """Return the compound sentiment score of a text."""
-    sentiment = analyzer.polarity_scores(text)
-    return sentiment["compound"]
+# Step 2: Normalize the Data
 
+# Normalize ROI (Expected between 0-0.1)
+merged_df['normalized_roi'] = (merged_df['average_roi'] - 0) / (0.1 - 0)
 
-def get_average_sentiment(company_name):
-    url = f"https://newsapi.org/v2/everything?q={company_name}&from=2023-09-15&to=2023-09-15&sortBy=popularity&apiKey=1088c0a9c4294358999d3603d72fda8d"
-    response = requests.get(url)
+# Normalize ESG (Expected between 0-30)
+merged_df['normalized_esg'] = (merged_df['esg_score'] - 0) / (30 - 0)
 
-    # Ensure the response is successful
-    response.raise_for_status()
+# Normalize Volatility (Expected between 0-5% or 0-0.05)
+merged_df['normalized_volatility'] = (merged_df['average_volatility'] - 0) / (0.05 - 0)
 
-    articles = response.json().get("articles", [])
+# Normalize Sentiment (Expected between -1 and 1)
+merged_df['normalized_sentiment'] = (merged_df['sentiment_score'] + 1) / 2  # Convert to 0 to 1 scale
 
-    # Get the sentiment of the descriptions (up to the first 5)
-    sentiments = [sentiment_analyzer(article["description"]) for article in articles[:5]]
+# Step 3: Compute Adjusted Sustainability Metric
+merged_df['Adjusted_Sustainability_Metric'] = (
+    0.40 * merged_df['normalized_roi'] +
+    0.25 * merged_df['normalized_esg'] +
+    0.20 * merged_df['normalized_volatility'] +
+    0.15 * merged_df['normalized_sentiment']
+)
 
-    # Calculate the average sentiment
-    return round(mean(sentiments), 2) if sentiments else None
+# Select the columns to save to the final CSV
+final_df = merged_df[['Ticker', 'Adjusted_Sustainability_Metric']]
 
-
-stock_sentiments = []
-for stock, name in company_names.items():
-    avg_sentiment = get_average_sentiment(name)
-    stock_sentiments.append((stock, avg_sentiment))
-
-# Writing the results to CSV
-with open("Stock_sentiment_news_articles.csv", "w", newline="") as f:
-    writer = csv.writer(f)
-    writer.writerow(["Stock Names", "Sentiments"])
-    writer.writerows(stock_sentiments)
+# Step 4: Write to CSV
+final_df.to_csv(os.path.join(directory, 'adjusted_sustainability_metric.csv'), index=False)
